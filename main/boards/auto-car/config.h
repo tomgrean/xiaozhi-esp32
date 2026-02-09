@@ -2,6 +2,7 @@
 #define _BOARD_CONFIG_H_
 
 #include <driver/gpio.h>
+#include <driver/uart.h>
 
 #define AUDIO_INPUT_SAMPLE_RATE  16000
 #define AUDIO_OUTPUT_SAMPLE_RATE 24000
@@ -58,7 +59,7 @@
 
 #define ECHO_UART_PORT_NUM      UART_NUM_1
 #define ECHO_UART_BAUD_RATE     (9600)
-#define BUF_SIZE                (512)
+#define ECHO_BUF_SIZE           (512)
 
 #define AUTO_CAR_UART_TX GPIO_NUM_13
 #define AUTO_CAR_UART_RX GPIO_NUM_14

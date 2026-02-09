@@ -12,6 +12,7 @@
 
 #include <esp_log.h>
 #include <driver/i2c_master.h>
+#include <driver/uart.h>
 #include <esp_lcd_panel_ops.h>
 #include <esp_lcd_panel_vendor.h>
 
@@ -26,6 +27,7 @@ private:
     i2c_master_bus_handle_t display_i2c_bus_;
     esp_lcd_panel_io_handle_t panel_io_ = nullptr;
     esp_lcd_panel_handle_t panel_ = nullptr;
+    int car_light = 0;//R|G|B
     Display* display_ = nullptr;
     Button boot_button_;
     Button touch_button_;
@@ -147,9 +149,151 @@ private:
         });
     }
 
+    // 通过UART控制MiniAuto的运动
+    void InitializeCarUart() {
+		uart_config_t uart_config = {
+			.baud_rate = ECHO_UART_BAUD_RATE,
+			.data_bits = UART_DATA_8_BITS,
+			.parity = UART_PARITY_DISABLE,
+			.stop_bits = UART_STOP_BITS_1,
+			.flow_ctrl = UART_HW_FLOWCTRL_DISABLE,
+			.source_clk = UART_SCLK_DEFAULT,
+		};
+		int intr_alloc_flags = 0;
+
+		ESP_ERROR_CHECK(uart_driver_install(ECHO_UART_PORT_NUM, ECHO_BUF_SIZE*2, 0, 0, NULL, intr_alloc_flags));
+		ESP_ERROR_CHECK(uart_param_config(ECHO_UART_PORT_NUM, &uart_config));
+		ESP_ERROR_CHECK(uart_set_pin(ECHO_UART_PORT_NUM, AUTO_CAR_UART_TX, AUTO_CAR_UART_RX, AUTO_CAR_UART_RTS, AUTO_CAR_UART_CTS));
+
+		SendUartMessage("A|8|$A|11|$");
+    }
+
+	void SendUartMessage(const char *cmd_str) {
+		uint8_t len = strlen(cmd_str);
+		uart_write_bytes(ECHO_UART_PORT_NUM, cmd_str, len);
+		ESP_LOGI(TAG, "SentUart:%s", cmd_str);
+	}
+
     // 物联网初始化，逐步迁移到 MCP 协议
     void InitializeTools() {
         static LampController lamp(LAMP_GPIO);
+		auto &mcp_server = McpServer::GetInstance();
+		mcp_server.AddTool("self.car.get_light_mode", "获取车灯颜色", PropertyList(), [this](const PropertyList &properties) -> ReturnValue {
+			int r = 0xff & (car_light >> 16);
+			int g = 0xff & (car_light >> 8);
+			int b = 0xff & car_light;
+			std::string result("{\"r\":");
+			result.append(std::to_string(r));
+			result.append(",\"g\":");
+			result.append(std::to_string(g));
+			result.append(",\"b\":");
+			result.append(std::to_string(b));
+			result.append("}");
+			return result;
+			//B|255|255|255|$
+			//B|R|G|B|$
+		});
+
+		mcp_server.AddTool("self.car.set_light_mode", "设置车灯颜色", PropertyList({
+			Property("r", kPropertyTypeInteger, 0, 255),
+			Property("g", kPropertyTypeInteger, 0, 255),
+			Property("b", kPropertyTypeInteger, 0, 255)
+		}), [this](const PropertyList &properties) -> ReturnValue {
+			int r = properties["r"].value<int>();
+			int g = properties["g"].value<int>();
+			int b = properties["b"].value<int>();
+			car_light = ((r & 0xff) << 16) | ((g & 0xff) << 8) | (b & 0xff);
+			char buffer[24];
+			snprintf(buffer, sizeof(buffer), "B|%u|%u|%u|$", r, g, b);
+			SendUartMessage(buffer);
+			return true;
+			//B|255|255|255|$
+			//B|R|G|B|$
+		});
+
+		mcp_server.AddTool("self.car.stop", "停止", PropertyList(), [this](const PropertyList &properties) -> ReturnValue {
+			SendUartMessage("A|8|$");
+			return true;
+		});
+
+		mcp_server.AddTool("self.car.go_forward", "前进", PropertyList(), [this](const PropertyList &properties) -> ReturnValue {
+			SendUartMessage("A|2|$");
+			return true;
+		});
+
+		mcp_server.AddTool("self.car.go_back", "后退", PropertyList(), [this](const PropertyList &properties) -> ReturnValue {
+			SendUartMessage("A|6|$");
+			return true;
+		});
+
+		mcp_server.AddTool("self.car.go_left", "左移", PropertyList(), [this](const PropertyList &properties) -> ReturnValue {
+			SendUartMessage("A|0|$");
+			return true;
+		});
+
+		mcp_server.AddTool("self.car.go_right", "右移", PropertyList(), [this](const PropertyList &properties) -> ReturnValue {
+			SendUartMessage("A|4|$");
+			return true;
+		});
+
+		mcp_server.AddTool("self.car.go_forward_left", "左前", PropertyList(), [this](const PropertyList &properties) -> ReturnValue {
+			SendUartMessage("A|1|$");
+			return true;
+		});
+
+		mcp_server.AddTool("self.car.go_forward_right", "右前", PropertyList(), [this](const PropertyList &properties) -> ReturnValue {
+			SendUartMessage("A|3|$");
+			return true;
+		});
+
+		mcp_server.AddTool("self.car.go_back_left", "左后", PropertyList(), [this](const PropertyList &properties) -> ReturnValue {
+			SendUartMessage("A|7|$");
+			return true;
+		});
+
+		mcp_server.AddTool("self.car.go_back_right", "右后", PropertyList(), [this](const PropertyList &properties) -> ReturnValue {
+			SendUartMessage("A|5|$");
+			return true;
+		});
+
+		mcp_server.AddTool("self.car.turn_left", "左转", PropertyList(), [this](const PropertyList &properties) -> ReturnValue {
+			SendUartMessage("A|9|$");
+			return true;
+		});
+
+		mcp_server.AddTool("self.car.turn_right", "右转", PropertyList(), [this](const PropertyList &properties) -> ReturnValue {
+			SendUartMessage("A|10|$");
+			return true;
+		});
+
+		mcp_server.AddTool("self.car.stop_turn", "停止转向", PropertyList(), [this](const PropertyList &properties) -> ReturnValue {
+			SendUartMessage("A|8|$A|11|$");
+			return true;
+		});
+
+		mcp_server.AddTool("self.car.set_speed", "设置运动速度", PropertyList(), [this](const PropertyList &properties) -> ReturnValue {
+			SendUartMessage("C|53|$");//小车回同样内容
+			return true;
+		});
+
+		mcp_server.AddTool("self.car.free_run", "自由壁障运动", PropertyList(), [this](const PropertyList &properties) -> ReturnValue {
+			SendUartMessage("F|1|$");
+			return true;
+		});
+
+		mcp_server.AddTool("self.car.stop_free_run", "停止自由壁障运动", PropertyList(), [this](const PropertyList &properties) -> ReturnValue {
+			SendUartMessage("F|0|$");
+			return true;
+		});
+
+		/* logic not working
+		mcp_server.AddTool("self.car.get_distance", "获取与前方物体的距离", PropertyList(), [this](const PropertyList &properties) -> ReturnValue {
+			SendUartMessage("D|$");
+			return true;
+			//小车返回:$长度,Voltage$
+		});
+		*/
+
     }
 
 public:
@@ -186,3 +330,4 @@ public:
 };
 
 DECLARE_BOARD(AutoCarBoard);
+
