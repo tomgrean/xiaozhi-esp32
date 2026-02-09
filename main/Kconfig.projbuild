@@ -494,6 +494,9 @@ choice BOARD_TYPE
     config BOARD_TYPE_HU_087
         bool "HU-087"
         depends on IDF_TARGET_ESP32S3
+    config BOARD_TYPE_AUTO_CAR
+        bool "基于Bread版本_通过UART控制小车"
+        depends on IDF_TARGET_ESP32S3
 endchoice
 
 choice
