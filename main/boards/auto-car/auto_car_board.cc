@@ -333,6 +333,7 @@ public:
         InitializeDisplayI2c();
         InitializeSsd1306Display();
         InitializeButtons();
+        InitializeCarUart();
         InitializeTools();
     }
 
@@ -396,7 +397,6 @@ public:
         while (true) {
             size_t p = msg.find('|', start);
             if (p == std::string::npos) {
-                parts.push_back(msg.substr(start));
                 break;
             }
             parts.push_back(msg.substr(start, p - start));
