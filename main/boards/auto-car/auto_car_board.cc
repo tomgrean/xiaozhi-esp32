@@ -170,7 +170,7 @@ private:
         };
         int intr_alloc_flags = 0;
 
-        ESP_ERROR_CHECK(uart_driver_install(AUTO_CAR_UART_PORT_NUM, AUTO_CAR_BUF_SIZE, AUTO_CAR_BUF_SIZE, 0, NULL, intr_alloc_flags));
+        ESP_ERROR_CHECK(uart_driver_install(AUTO_CAR_UART_PORT_NUM, AUTO_CAR_BUF_SIZE*2, AUTO_CAR_BUF_SIZE*2, 0, NULL, intr_alloc_flags));
         ESP_ERROR_CHECK(uart_param_config(AUTO_CAR_UART_PORT_NUM, &uart_config));
         ESP_ERROR_CHECK(uart_set_pin(AUTO_CAR_UART_PORT_NUM, AUTO_CAR_UART_TX, AUTO_CAR_UART_RX, AUTO_CAR_UART_RTS, AUTO_CAR_UART_CTS));
 
@@ -187,7 +187,9 @@ private:
             ESP_LOGE(TAG, "Failed to send All:[%s], written: %d", cmd_str, ret);
             return;
         }
-        ESP_LOGI(TAG, "SentUart:%s", cmd_str);
+        if ('D' != cmd_str[0]) {
+            ESP_LOGI(TAG, "SentUart:%s", cmd_str);
+        }
     }
 
     // 物联网初始化，逐步迁移到 MCP 协议
