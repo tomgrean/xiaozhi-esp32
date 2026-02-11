@@ -59,7 +59,7 @@
 
 #define AUTO_CAR_UART_PORT_NUM      UART_NUM_1
 #define AUTO_CAR_UART_BAUD_RATE     (9600)
-#define AUTO_CAR_BUF_SIZE           (512)
+#define AUTO_CAR_BUF_SIZE           (128)
 
 #define AUTO_CAR_UART_TX GPIO_NUM_13
 #define AUTO_CAR_UART_RX GPIO_NUM_14

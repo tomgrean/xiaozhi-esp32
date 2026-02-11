@@ -33,7 +33,8 @@ private:
     esp_lcd_panel_io_handle_t panel_io_ = nullptr;
     esp_lcd_panel_handle_t panel_ = nullptr;
     int car_light = 0;//R|G|B
-    int car_speed = 30;//0-100
+    int car_speed = 26;//0-100
+    bool car_is_moving = false; // 小车是否在运动
     volatile int last_distance_mm = 0; // millimeters
     volatile int last_distance_mv = 0; // millivolts
     Display* display_ = nullptr;
@@ -169,7 +170,7 @@ private:
         };
         int intr_alloc_flags = 0;
 
-        ESP_ERROR_CHECK(uart_driver_install(AUTO_CAR_UART_PORT_NUM, AUTO_CAR_BUF_SIZE*2, 0, 0, NULL, intr_alloc_flags));
+        ESP_ERROR_CHECK(uart_driver_install(AUTO_CAR_UART_PORT_NUM, AUTO_CAR_BUF_SIZE, AUTO_CAR_BUF_SIZE, 0, NULL, intr_alloc_flags));
         ESP_ERROR_CHECK(uart_param_config(AUTO_CAR_UART_PORT_NUM, &uart_config));
         ESP_ERROR_CHECK(uart_set_pin(AUTO_CAR_UART_PORT_NUM, AUTO_CAR_UART_TX, AUTO_CAR_UART_RX, AUTO_CAR_UART_RTS, AUTO_CAR_UART_CTS));
 
@@ -181,7 +182,11 @@ private:
 
     void SendUartMessage(const char *cmd_str) {
         size_t len = strlen(cmd_str);
-        uart_write_bytes(AUTO_CAR_UART_PORT_NUM, cmd_str, len);
+        int ret = uart_write_bytes(AUTO_CAR_UART_PORT_NUM, cmd_str, len);
+        if (ret < len) {
+            ESP_LOGE(TAG, "Failed to send All:[%s], written: %d", cmd_str, ret);
+            return;
+        }
         ESP_LOGI(TAG, "SentUart:%s", cmd_str);
     }
 
@@ -223,64 +228,78 @@ private:
         });
 
         mcp_server.AddTool("self.car.stop", "停止", PropertyList(), [this](const PropertyList &properties) -> ReturnValue {
-            SendUartMessage("A|8|$");
+            car_is_moving = false;
+            //SendUartMessage("A|8|$");
+            SendUartMessage("A|8|$A|11|$");
             return true;
         });
 
         mcp_server.AddTool("self.car.go_forward", "前进", PropertyList(), [this](const PropertyList &properties) -> ReturnValue {
+            car_is_moving = true;
             SendUartMessage("A|2|$");
             return true;
         });
 
         mcp_server.AddTool("self.car.go_back", "后退", PropertyList(), [this](const PropertyList &properties) -> ReturnValue {
+            car_is_moving = true;
             SendUartMessage("A|6|$");
             return true;
         });
 
         mcp_server.AddTool("self.car.go_left", "左移", PropertyList(), [this](const PropertyList &properties) -> ReturnValue {
+            car_is_moving = true;
             SendUartMessage("A|0|$");
             return true;
         });
 
         mcp_server.AddTool("self.car.go_right", "右移", PropertyList(), [this](const PropertyList &properties) -> ReturnValue {
+            car_is_moving = true;
             SendUartMessage("A|4|$");
             return true;
         });
 
         mcp_server.AddTool("self.car.go_forward_left", "左前", PropertyList(), [this](const PropertyList &properties) -> ReturnValue {
+            car_is_moving = true;
             SendUartMessage("A|1|$");
             return true;
         });
 
         mcp_server.AddTool("self.car.go_forward_right", "右前", PropertyList(), [this](const PropertyList &properties) -> ReturnValue {
+            car_is_moving = true;
             SendUartMessage("A|3|$");
             return true;
         });
 
         mcp_server.AddTool("self.car.go_back_left", "左后", PropertyList(), [this](const PropertyList &properties) -> ReturnValue {
+            car_is_moving = true;
             SendUartMessage("A|7|$");
             return true;
         });
 
         mcp_server.AddTool("self.car.go_back_right", "右后", PropertyList(), [this](const PropertyList &properties) -> ReturnValue {
+            car_is_moving = true;
             SendUartMessage("A|5|$");
             return true;
         });
 
         mcp_server.AddTool("self.car.turn_left", "左转", PropertyList(), [this](const PropertyList &properties) -> ReturnValue {
+            car_is_moving = true;
             SendUartMessage("A|9|$");
             return true;
         });
 
         mcp_server.AddTool("self.car.turn_right", "右转", PropertyList(), [this](const PropertyList &properties) -> ReturnValue {
+            car_is_moving = true;
             SendUartMessage("A|10|$");
             return true;
         });
 
-        mcp_server.AddTool("self.car.stop_turn", "停止转向", PropertyList(), [this](const PropertyList &properties) -> ReturnValue {
-            SendUartMessage("A|8|$A|11|$");
-            return true;
-        });
+        // “停止转向”和“停止”功能合并，不区分转向和移动状态，任何停止命令都会发送完全停止指令给小车。
+        // mcp_server.AddTool("self.car.stop_turn", "停止转向", PropertyList(), [this](const PropertyList &properties) -> ReturnValue {
+        //     car_is_moving = false;
+        //     SendUartMessage("A|8|$A|11|$");
+        //     return true;
+        // });
 
         mcp_server.AddTool("self.car.set_speed", "设置移动速度", PropertyList({
             Property("speed", kPropertyTypeInteger, 0, 100)
@@ -322,6 +341,76 @@ private:
             return std::string(buffer);
         });
 
+        // 批量执行多条指令：commands 可以是 JSON 数组字符串，或用 ';' / '\n' 分隔的命令列表。
+        // 每条指令也可以带后缀 `#<s>` 指定该条指令后等待秒数（例如 `go_forward#2`）。
+        // 默认每条指令后等待固定 1 秒（若未在命令中指定）。
+        mcp_server.AddTool("self.car.run_sequence", R"=(一次执行多条指令，命令以JSON格式，如：
+["go_forward","go_back","go_left","go_right","go_forward_left","go_forward_right","go_back_left","go_back_right","turn_left","turn_right","stop"]
+或者直接拼接成以';'分隔的字符串格式，如：
+"go_forward;go_back;go_left;go_right;go_forward_left;go_forward_right;go_back_left;go_back_right;turn_left;turn_right;stop"
+每个指令可以带后缀"#<s>"指定该条指令后等待秒数，例如：前进4秒，左移2秒的指令序列可以写成：
+["go_forward#4","go_left#2"]
+)=", PropertyList({
+            Property("commands", kPropertyTypeString)
+        }), [this](const PropertyList &properties) -> ReturnValue {
+            std::string raw = properties["commands"].value<std::string>();
+            std::vector<std::string> parts;
+
+            ESP_LOGI(TAG, "Run sequence commands: %s", raw.c_str());
+            // Try parse as JSON array first
+            cJSON *json = cJSON_Parse(raw.c_str());
+            if (json && cJSON_IsArray(json)) {
+                int size = cJSON_GetArraySize(json);
+                for (int i = 0; i < size; ++i) {
+                    cJSON *it = cJSON_GetArrayItem(json, i);
+                    if (cJSON_IsString(it)) {
+                        parts.emplace_back(it->valuestring);
+                    }
+                }
+                cJSON_Delete(json);
+            } else {
+                // split by ';' or newlines
+                size_t start = 0;
+                while (start < raw.size()) {
+                    size_t p = raw.find_first_of(";\n", start);
+                    std::string token;
+                    if (p == std::string::npos) {
+                        token = raw.substr(start);
+                        start = raw.size();
+                    } else {
+                        token = raw.substr(start, p - start);
+                        start = p + 1;
+                    }
+                    // trim
+                    size_t a = token.find_first_not_of(" \t\r");
+                    if (a == std::string::npos) continue;
+                    size_t b = token.find_last_not_of(" \t\r");
+                    parts.emplace_back(token.substr(a, b - a + 1));
+                }
+            }
+
+            if (parts.empty()) return false;
+
+            // ensure final stop exists; if none of the commands contains an explicit stop token, append stop
+            const auto c = parts.rbegin();
+            if (c->find("stop") != std::string::npos) {
+                parts.emplace_back("stop");
+            }
+
+            // build job and create a task to run it asynchronously
+            SequenceJob *job = new SequenceJob();
+            job->board = this;
+            job->commands = parts;
+
+            BaseType_t ret = xTaskCreate(RunSequenceTask, "run_seq", 4096, job, 5, NULL);
+            if (ret != pdPASS) {
+                delete job;
+                ESP_LOGE(TAG, "Failed to create run_sequence task");
+                return false;
+            }
+            return true;
+        });
+
     }
 
 public:
@@ -361,6 +450,96 @@ public:
     static void UartCombinedTask(void *arg) {
         static_cast<AutoCarBoard*>(arg)->UartCombinedLoop();
         vTaskDelete(NULL);
+    }
+
+    // Task params for running a sequence of commands
+    struct SequenceJob {
+        AutoCarBoard* board;
+        std::vector<std::string> commands;
+    };
+
+    // Task to execute a sequence of UART commands asynchronously
+    static void RunSequenceTask(void *arg) {
+        SequenceJob *job = static_cast<SequenceJob*>(arg);
+        AutoCarBoard *self = job->board;
+        for (const auto &raw_cmd : job->commands) {
+            std::string cmd = raw_cmd;
+
+            // detect per-command trailing interval suffix: either "#<s>" or " #<s>"
+            int local_interval_s = 1; // default 1 second
+            size_t hash_pos = cmd.find_last_of('#');
+            if (hash_pos != std::string::npos && hash_pos + 1 < cmd.size()) {
+                // try parse integer after '#'
+                const char *num_start = cmd.c_str() + hash_pos + 1;
+                int val = atoi(num_start);
+                if (val > 0) {
+                    local_interval_s = val;
+                    // strip the suffix (and any space before '#')
+                    size_t strip_pos = hash_pos;
+                    if (strip_pos > 0 && cmd[strip_pos - 1] == ' ') --strip_pos;
+                    cmd.erase(strip_pos);
+                }
+            }
+
+            // send UART command if non-empty
+            if (!cmd.empty()) {
+                if (cmd.compare(0, 9, "self.car.") == 0) {
+                    cmd = cmd.substr(9);
+                }
+                // If command matches a known MCP tool name without the "self.car." prefix,
+                // invoke the corresponding action (same as AddTool handlers).
+                if (cmd == "stop") {
+                    self->car_is_moving = false;
+                    self->SendUartMessage("A|8|$A|11|$");
+                } else if (cmd == "go_forward") {
+                    self->car_is_moving = true;
+                    self->SendUartMessage("A|2|$");
+                } else if (cmd == "go_back") {
+                    self->car_is_moving = true;
+                    self->SendUartMessage("A|6|$");
+                } else if (cmd == "go_left") {
+                    self->car_is_moving = true;
+                    self->SendUartMessage("A|0|$");
+                } else if (cmd == "go_right") {
+                    self->car_is_moving = true;
+                    self->SendUartMessage("A|4|$");
+                } else if (cmd == "go_forward_left") {
+                    self->car_is_moving = true;
+                    self->SendUartMessage("A|1|$");
+                } else if (cmd == "go_forward_right") {
+                    self->car_is_moving = true;
+                    self->SendUartMessage("A|3|$");
+                } else if (cmd == "go_back_left") {
+                    self->car_is_moving = true;
+                    self->SendUartMessage("A|7|$");
+                } else if (cmd == "go_back_right") {
+                    self->car_is_moving = true;
+                    self->SendUartMessage("A|5|$");
+                } else if (cmd == "turn_left") {
+                    self->car_is_moving = true;
+                    self->SendUartMessage("A|9|$");
+                } else if (cmd == "turn_right") {
+                    self->car_is_moving = true;
+                    self->SendUartMessage("A|10|$");
+                } else {
+                    // fallback: treat as raw UART string
+                    self->SendUartMessage(cmd.c_str());
+                }
+            }
+
+            // delay after command (per-command interval if specified, otherwise default)
+            if (local_interval_s > 0) vTaskDelay(pdMS_TO_TICKS(local_interval_s * 1000));
+        }
+        delete job;
+        vTaskDelete(NULL);
+
+        // // 上报 MCP 通知：命令序列执行完成（没有 id 字段）
+        // {
+        //     std::string mcp_msg;
+        //     mcp_msg.reserve(128);
+        //     mcp_msg.append("{\"jsonrpc\":\"2.0\",\"method\":\"notifications/run_sequence_changed\",\"params\":{\"newState\":true,\"oldState\":false}}");
+        //     Application::GetInstance().SendMcpMessage(mcp_msg);
+        // }
     }
 
     void UartCombinedLoop() {
@@ -415,6 +594,20 @@ public:
                 last_distance_mm = len_mm;
                 last_distance_mv = vol_mv;
                 ESP_LOGI(TAG, "Distance response: %d mm, %d mV", len_mm, vol_mv);
+
+                // 距离小于40mm且小车在运动时，自动停止
+                if (len_mm < 40 && car_is_moving) {
+                    ESP_LOGI(TAG, "Distance %d mm < 40mm, stopping car", len_mm);
+                    car_is_moving = false;
+                    SendUartMessage("A|8|$A|11|$");
+                    // 上报 MCP 通知：距离过近导致已停止（没有 id 字段）
+                    {
+                        std::string mcp_msg;
+                        mcp_msg.reserve(128);
+                        mcp_msg.append("{\"jsonrpc\":\"2.0\",\"method\":\"notifications/moving_changed\",\"params\":{\"newState\":false,\"oldState\":true}}");
+                        Application::GetInstance().SendMcpMessage(mcp_msg);
+                    }
+                }
             }
             return;
         }
