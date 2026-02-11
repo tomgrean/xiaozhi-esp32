@@ -175,7 +175,7 @@ private:
 
         SendUartMessage("A|8|$A|11|$");
 
-        // 启动 UART 读取任务 + 距离传感器轮询任务（每 300ms 发送一次请求）
+        // 启动 UART 读取任务 + 距离传感器轮询任务（每 300ms-500ms 发送一次请求）
         xTaskCreate(UartCombinedTask, "car_uart_task", 4096, this, 5, NULL);
     }
 
