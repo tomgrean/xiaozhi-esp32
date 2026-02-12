@@ -349,6 +349,10 @@ std::string WifiBoard::GetDeviceStatusJson() {
         cJSON_AddNumberToObject(chip, "temperature", temp);
         cJSON_AddItemToObject(root, "chip", chip);
     }
+    // Car status
+    auto car = cJSON_CreateObject();
+    cJSON_AddBoolToObject(car, "online", IsCarOnline());
+    cJSON_AddItemToObject(root, "car", car);
 
     auto str = cJSON_PrintUnformatted(root);
     std::string result(str);

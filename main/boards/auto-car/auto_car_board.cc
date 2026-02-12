@@ -35,8 +35,8 @@ private:
     int car_light = 0;//R|G|B
     int car_speed = 26;//0-100
     bool car_is_moving = false; // 小车是否在运动
-    volatile int last_distance_mm = 0; // millimeters
-    volatile int last_distance_mv = 0; // millivolts
+    volatile int last_distance_mm = -1; // millimeters
+    volatile int last_distance_mv = -1; // millivolts
     Display* display_ = nullptr;
     Button boot_button_;
     Button touch_button_;
@@ -229,120 +229,6 @@ private:
             //B|R|G|B|$
         });
 
-        mcp_server.AddTool("self.car.stop", "停止", PropertyList(), [this](const PropertyList &properties) -> ReturnValue {
-            car_is_moving = false;
-            //SendUartMessage("A|8|$");
-            SendUartMessage("A|8|$A|11|$");
-            return true;
-        });
-
-        mcp_server.AddTool("self.car.go_forward", "前进", PropertyList(), [this](const PropertyList &properties) -> ReturnValue {
-            car_is_moving = true;
-            SendUartMessage("A|2|$");
-            return true;
-        });
-
-        mcp_server.AddTool("self.car.go_back", "后退", PropertyList(), [this](const PropertyList &properties) -> ReturnValue {
-            car_is_moving = true;
-            SendUartMessage("A|6|$");
-            return true;
-        });
-
-        mcp_server.AddTool("self.car.go_left", "左移", PropertyList(), [this](const PropertyList &properties) -> ReturnValue {
-            car_is_moving = true;
-            SendUartMessage("A|0|$");
-            return true;
-        });
-
-        mcp_server.AddTool("self.car.go_right", "右移", PropertyList(), [this](const PropertyList &properties) -> ReturnValue {
-            car_is_moving = true;
-            SendUartMessage("A|4|$");
-            return true;
-        });
-
-        mcp_server.AddTool("self.car.go_forward_left", "左前", PropertyList(), [this](const PropertyList &properties) -> ReturnValue {
-            car_is_moving = true;
-            SendUartMessage("A|1|$");
-            return true;
-        });
-
-        mcp_server.AddTool("self.car.go_forward_right", "右前", PropertyList(), [this](const PropertyList &properties) -> ReturnValue {
-            car_is_moving = true;
-            SendUartMessage("A|3|$");
-            return true;
-        });
-
-        mcp_server.AddTool("self.car.go_back_left", "左后", PropertyList(), [this](const PropertyList &properties) -> ReturnValue {
-            car_is_moving = true;
-            SendUartMessage("A|7|$");
-            return true;
-        });
-
-        mcp_server.AddTool("self.car.go_back_right", "右后", PropertyList(), [this](const PropertyList &properties) -> ReturnValue {
-            car_is_moving = true;
-            SendUartMessage("A|5|$");
-            return true;
-        });
-
-        mcp_server.AddTool("self.car.turn_left", "左转", PropertyList(), [this](const PropertyList &properties) -> ReturnValue {
-            car_is_moving = true;
-            SendUartMessage("A|9|$");
-            return true;
-        });
-
-        mcp_server.AddTool("self.car.turn_right", "右转", PropertyList(), [this](const PropertyList &properties) -> ReturnValue {
-            car_is_moving = true;
-            SendUartMessage("A|10|$");
-            return true;
-        });
-
-        // “停止转向”和“停止”功能合并，不区分转向和移动状态，任何停止命令都会发送完全停止指令给小车。
-        // mcp_server.AddTool("self.car.stop_turn", "停止转向", PropertyList(), [this](const PropertyList &properties) -> ReturnValue {
-        //     car_is_moving = false;
-        //     SendUartMessage("A|8|$A|11|$");
-        //     return true;
-        // });
-
-        mcp_server.AddTool("self.car.set_speed", "设置移动速度", PropertyList({
-            Property("speed", kPropertyTypeInteger, 0, 100)
-        }), [this](const PropertyList &properties) -> ReturnValue {
-            int speed = properties["speed"].value<int>();
-            if (speed < 0) {
-                speed = 0;
-            } else if (speed > 100) {
-                speed = 100;
-            }
-            //car_speed = speed;//等小车回传速度后再更新。
-            char buffer[16];
-            snprintf(buffer, sizeof(buffer), "C|%u|$", speed);
-            SendUartMessage(buffer);//小车回同样内容
-            return true;
-        });
-
-        mcp_server.AddTool("self.car.get_speed", "获取小车当前移动速度", PropertyList(), [this](const PropertyList &properties) -> ReturnValue {
-            char buffer[16];
-            snprintf(buffer, sizeof(buffer), "{\"speed\":%d}", car_speed);
-            return std::string(buffer);
-        });
-
-        mcp_server.AddTool("self.car.free_run", "自由壁障运动", PropertyList(), [this](const PropertyList &properties) -> ReturnValue {
-            SendUartMessage("F|1|$");
-            return true;
-        });
-
-        mcp_server.AddTool("self.car.stop_free_run", "停止自由壁障运动", PropertyList(), [this](const PropertyList &properties) -> ReturnValue {
-            SendUartMessage("F|0|$");
-            return true;
-        });
-
-        // 返回最近一次轮询到的距离/电压（轮询任务每 300ms 发送请求并更新缓存）
-        mcp_server.AddTool("self.car.get_distance", "获取与前方物体的距离（毫米，毫伏）", PropertyList(), [this](const PropertyList &properties) -> ReturnValue {
-            char buffer[64];
-            // 返回当前缓存值（整数，距离单位 mm，电压单位 mV）
-            snprintf(buffer, sizeof(buffer), "{\"distance_mm\":%d,\"voltage_mv\":%d}", last_distance_mm, last_distance_mv);
-            return std::string(buffer);
-        });
-
         // 批量执行多条指令：commands 可以是 JSON 数组字符串，或用 ';' / '\n' 分隔的命令列表。
         // 每条指令也可以带后缀 `#<s>` 指定该条指令后等待秒数（例如 `go_forward#2`）。
         // 默认每条指令后等待固定 1 秒（若未在命令中指定）。
@@ -413,6 +299,126 @@ private:
             return true;
         });
 
+        mcp_server.AddTool("self.car.stop", "停止", PropertyList(), [this](const PropertyList &properties) -> ReturnValue {
+            car_is_moving = false;
+            //SendUartMessage("A|8|$");
+            SendUartMessage("A|8|$A|11|$");
+            return true;
+        });
+
+#if 0   // 单独的指令延时太大，合并到 run_sequence 中调用。
+        mcp_server.AddTool("self.car.go_forward", "前进", PropertyList(), [this](const PropertyList &properties) -> ReturnValue {
+            car_is_moving = true;
+            SendUartMessage("A|2|$");
+            return true;
+        });
+
+        mcp_server.AddTool("self.car.go_back", "后退", PropertyList(), [this](const PropertyList &properties) -> ReturnValue {
+            car_is_moving = true;
+            SendUartMessage("A|6|$");
+            return true;
+        });
+
+        mcp_server.AddTool("self.car.go_left", "左移", PropertyList(), [this](const PropertyList &properties) -> ReturnValue {
+            car_is_moving = true;
+            SendUartMessage("A|0|$");
+            return true;
+        });
+
+        mcp_server.AddTool("self.car.go_right", "右移", PropertyList(), [this](const PropertyList &properties) -> ReturnValue {
+            car_is_moving = true;
+            SendUartMessage("A|4|$");
+            return true;
+        });
+
+        mcp_server.AddTool("self.car.go_forward_left", "左前", PropertyList(), [this](const PropertyList &properties) -> ReturnValue {
+            car_is_moving = true;
+            SendUartMessage("A|1|$");
+            return true;
+        });
+
+        mcp_server.AddTool("self.car.go_forward_right", "右前", PropertyList(), [this](const PropertyList &properties) -> ReturnValue {
+            car_is_moving = true;
+            SendUartMessage("A|3|$");
+            return true;
+        });
+
+        mcp_server.AddTool("self.car.go_back_left", "左后", PropertyList(), [this](const PropertyList &properties) -> ReturnValue {
+            car_is_moving = true;
+            SendUartMessage("A|7|$");
+            return true;
+        });
+
+        mcp_server.AddTool("self.car.go_back_right", "右后", PropertyList(), [this](const PropertyList &properties) -> ReturnValue {
+            car_is_moving = true;
+            SendUartMessage("A|5|$");
+            return true;
+        });
+
+        mcp_server.AddTool("self.car.turn_left", "左转", PropertyList(), [this](const PropertyList &properties) -> ReturnValue {
+            car_is_moving = true;
+            SendUartMessage("A|9|$");
+            return true;
+        });
+
+        mcp_server.AddTool("self.car.turn_right", "右转", PropertyList(), [this](const PropertyList &properties) -> ReturnValue {
+            car_is_moving = true;
+            SendUartMessage("A|10|$");
+            return true;
+        });
+
+        // “停止转向”和“停止”功能合并，不区分转向和移动状态，任何停止命令都会发送完全停止指令给小车。
+        // mcp_server.AddTool("self.car.stop_turn", "停止转向", PropertyList(), [this](const PropertyList &properties) -> ReturnValue {
+        //     car_is_moving = false;
+        //     SendUartMessage("A|8|$A|11|$");
+        //     return true;
+        // });
+#endif
+
+        mcp_server.AddTool("self.car.set_speed", "设置移动速度", PropertyList({
+            Property("speed", kPropertyTypeInteger, 0, 100)
+        }), [this](const PropertyList &properties) -> ReturnValue {
+            int speed = properties["speed"].value<int>();
+            if (speed < 0) {
+                speed = 0;
+            } else if (speed > 100) {
+                speed = 100;
+            }
+            //car_speed = speed;//等小车回传速度后再更新。
+            char buffer[16];
+            snprintf(buffer, sizeof(buffer), "C|%u|$", speed);
+            SendUartMessage(buffer);//小车回同样内容
+            return true;
+        });
+
+        mcp_server.AddTool("self.car.get_speed", "获取小车当前移动速度", PropertyList(), [this](const PropertyList &properties) -> ReturnValue {
+            char buffer[16];
+            snprintf(buffer, sizeof(buffer), "{\"speed\":%d}", car_speed);
+            return std::string(buffer);
+        });
+
+        mcp_server.AddTool("self.car.free_run", "自由避障运动", PropertyList(), [this](const PropertyList &properties) -> ReturnValue {
+            SendUartMessage("F|1|$");
+            return true;
+        });
+
+        mcp_server.AddTool("self.car.stop_free_run", "停止自由避障运动", PropertyList(), [this](const PropertyList &properties) -> ReturnValue {
+            SendUartMessage("F|0|$");
+            return true;
+        });
+
+        // 返回最近一次轮询到的距离/电压（轮询任务每 300ms 发送请求并更新缓存）
+        mcp_server.AddTool("self.car.get_distance", "获取与前方物体的距离（毫米，毫伏）", PropertyList(), [this](const PropertyList &properties) -> ReturnValue {
+            char buffer[64];
+            if (last_distance_mm == -1 || last_distance_mv == -1) {
+                // 未轮询到数据，返回错误。
+                snprintf(buffer, sizeof(buffer), "{\"error\":\"Car not connected\"}");
+            } else {
+                // 返回当前缓存值（整数，距离单位 mm，电压单位 mV）
+                snprintf(buffer, sizeof(buffer), "{\"distance_mm\":%d,\"voltage_mv\":%d}", last_distance_mm, last_distance_mv);
+            }
+            return std::string(buffer);
+        });
     }
 
 public:
@@ -446,6 +452,10 @@ public:
 
     virtual Display* GetDisplay() override {
         return display_;
+    }
+
+    bool IsCarOnline() override {
+        return last_distance_mm > 0;
     }
 
     // Combined UART task (reads and polls distance)
@@ -547,6 +557,7 @@ public:
     void UartCombinedLoop() {
         std::string pending;
         const TickType_t interval = pdMS_TO_TICKS(300);
+        int count_uart_not_response = 0;// 未收到uart数据的次数
         uint8_t buf[128];
         while (true) {
             // send distance poll each cycle
@@ -555,6 +566,7 @@ public:
             // block up to `interval` waiting for incoming UART data
             int len = uart_read_bytes(AUTO_CAR_UART_PORT_NUM, buf, sizeof(buf), interval);
             if (len > 0) {
+                count_uart_not_response = 0;
                 pending.append(reinterpret_cast<char*>(buf), len);
                 size_t pos;
                 while ((pos = pending.find('$')) != std::string::npos) {
@@ -564,6 +576,14 @@ public:
                 }
                 // 可能没有等待就收到消息了，需要在此等待一段时间，避免发消息太快。
                 vTaskDelay(pdMS_TO_TICKS(200));
+            } else {
+                count_uart_not_response++;
+                if (count_uart_not_response > 3 && last_distance_mm >= 0) {
+                    //ESP_LOGE(TAG, "UART not response for %d times, reset distance", count_uart_not_response);
+                    last_distance_mm = -1;
+                    last_distance_mv = -1;
+                    count_uart_not_response = 0;
+                }
             }
             // loop sends next poll immediately after read timeout or data processed
         }
