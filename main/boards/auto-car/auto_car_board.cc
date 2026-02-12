@@ -229,34 +229,22 @@ private:
             //B|R|G|B|$
         });
 
-        // 批量执行多条指令：commands 可以是 JSON 数组字符串，或用 ';' / '\n' 分隔的命令列表。
+        // 批量执行多条指令：commands 是用 ';' / '\n' 分隔的命令列表。
         // 每条指令也可以带后缀 `#<s>` 指定该条指令后等待秒数（例如 `go_forward#2`）。
         // 默认每条指令后等待固定 1 秒（若未在命令中指定）。
-        mcp_server.AddTool("self.car.run_sequence", R"=(一次执行多条指令，命令以JSON格式，如：
-["go_forward","go_back","go_left","go_right","go_forward_left","go_forward_right","go_back_left","go_back_right","turn_left","turn_right","stop"]
-或者直接拼接成以';'分隔的字符串格式，如：
+        mcp_server.AddTool("self.car.run_sequence", R"=(一次执行多条指令，命令拼接成以';'分隔的字符串格式，指令有：
 "go_forward;go_back;go_left;go_right;go_forward_left;go_forward_right;go_back_left;go_back_right;turn_left;turn_right;stop"
 每个指令可以带后缀"#<s>"指定该条指令后等待秒数，例如：前进4秒，左移2秒的指令序列可以写成：
-["go_forward#4","go_left#2"]
+"go_forward#4;go_left#2"
 )=", PropertyList({
-            Property("commands", kPropertyTypeString)
+            Property("commands", kPropertyTypeString, "stop")
         }), [this](const PropertyList &properties) -> ReturnValue {
             std::string raw = properties["commands"].value<std::string>();
             std::vector<std::string> parts;
 
             ESP_LOGI(TAG, "Run sequence commands: %s", raw.c_str());
-            // Try parse as JSON array first
-            cJSON *json = cJSON_Parse(raw.c_str());
-            if (json && cJSON_IsArray(json)) {
-                int size = cJSON_GetArraySize(json);
-                for (int i = 0; i < size; ++i) {
-                    cJSON *it = cJSON_GetArrayItem(json, i);
-                    if (cJSON_IsString(it)) {
-                        parts.emplace_back(it->valuestring);
-                    }
-                }
-                cJSON_Delete(json);
-            } else {
+
+            {
                 // split by ';' or newlines
                 size_t start = 0;
                 while (start < raw.size()) {
@@ -281,7 +269,7 @@ private:
 
             // ensure final stop exists; if none of the commands contains an explicit stop token, append stop
             const auto c = parts.rbegin();
-            if (c->find("stop") != std::string::npos) {
+            if (c->find("stop") == std::string::npos) {
                 parts.emplace_back("stop");
             }
 
