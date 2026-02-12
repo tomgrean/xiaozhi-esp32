@@ -229,16 +229,7 @@ private:
             //B|R|G|B|$
         });
 
-        // 批量执行多条指令：commands 是用 ';' / '\n' 分隔的命令列表。
-        // 每条指令也可以带后缀 `#<s>` 指定该条指令后等待秒数（例如 `go_forward#2`）。
-        // 默认每条指令后等待固定 1 秒（若未在命令中指定）。
-        mcp_server.AddTool("self.car.run_sequence", R"=(一次执行多条指令，命令拼接成以';'分隔的字符串格式，指令有：
-"go_forward;go_back;go_left;go_right;go_forward_left;go_forward_right;go_back_left;go_back_right;turn_left;turn_right;stop"
-每个指令可以带后缀"#<s>"指定该条指令后等待秒数，例如：前进4秒，左移2秒的指令序列可以写成：
-"go_forward#4;go_left#2"
-)=", PropertyList({
-            Property("commands", kPropertyTypeString, "stop")
-        }), [this](const PropertyList &properties) -> ReturnValue {
+        auto do_sequence_func = [this](const PropertyList &properties) -> ReturnValue {
             std::string raw = properties["commands"].value<std::string>();
             std::vector<std::string> parts;
 
@@ -285,12 +276,49 @@ private:
                 return false;
             }
             return true;
-        });
+        };
+        // 批量执行多条指令：commands 是用 ';' / '\n' 分隔的命令列表。
+        // 每条指令也可以带后缀 `#<s>` 指定该条指令后等待秒数（例如 `go_forward#2`）。
+        // 默认每条指令后等待固定 1 秒（若未在命令中指定）。
+        mcp_server.AddTool("self.car.run_sequence", R"=(一次执行多条指令，命令拼接成以';'分隔的字符串格式，指令有：
+"go_forward;go_back;go_left;go_right;go_forward_left;go_forward_right;go_back_left;go_back_right;turn_left;turn_right;stop"
+每个指令可以带后缀"#<s>"指定该条指令后等待秒数，例如：前进4秒，左移2秒的指令序列可以写成：
+"go_forward#4;go_left#2"
+)=", PropertyList({
+            Property("commands", kPropertyTypeString, "stop")
+        }), do_sequence_func);
 
-        mcp_server.AddTool("self.car.stop", "停止", PropertyList(), [this](const PropertyList &properties) -> ReturnValue {
-            car_is_moving = false;
-            //SendUartMessage("A|8|$");
-            SendUartMessage("A|8|$A|11|$");
+        mcp_server.AddTool("self.car.dance", "跳舞，可以通过大于2的参数“number”指定跳多少步的舞，默认跳6步", PropertyList({
+            Property("number", kPropertyTypeInteger, 6, 2, 50),
+        }), [this, do_sequence_func](const PropertyList &properties) -> ReturnValue {
+            const char *dance_commands[] = {"go_forward",
+                "go_back",
+                "go_left",
+                "go_right",
+                "go_forward_left",
+                "go_forward_right",
+                "go_back_left",
+                "go_back_right",
+                "turn_left",
+                "turn_right"};
+            int cnt = properties["number"].value<int>();
+            std::string generated_cmd;
+            srand(time(NULL));
+
+            while (cnt > 0) {
+                int sel = rand() % (sizeof(dance_commands)/sizeof(char*));
+                generated_cmd.append(dance_commands[sel]);
+                generated_cmd.append("#");
+                char interval = '1' + (rand() % 3);
+                generated_cmd.append(1, interval);
+                generated_cmd.append(";");
+                cnt--;
+            }
+            generated_cmd.append("stop");
+            Property a1("commands", kPropertyTypeString, "stop");
+            a1.set_value(generated_cmd);
+            PropertyList newarg({a1});
+            do_sequence_func(newarg);
             return true;
         });
 
@@ -462,6 +490,7 @@ public:
     static void RunSequenceTask(void *arg) {
         SequenceJob *job = static_cast<SequenceJob*>(arg);
         AutoCarBoard *self = job->board;
+        bool is_turning = false;
         for (const auto &raw_cmd : job->commands) {
             std::string cmd = raw_cmd;
 
@@ -488,6 +517,11 @@ public:
                 }
                 // If command matches a known MCP tool name without the "self.car." prefix,
                 // invoke the corresponding action (same as AddTool handlers).
+                if (is_turning) {
+                    // 上次的动作是转弯，得先停一下再做下一个动作。
+                    is_turning = false;
+                    self->SendUartMessage("A|8|$A|11|$");
+                }
                 if (cmd == "stop") {
                     self->car_is_moving = false;
                     self->SendUartMessage("A|8|$A|11|$");
@@ -516,9 +550,11 @@ public:
                     self->car_is_moving = true;
                     self->SendUartMessage("A|5|$");
                 } else if (cmd == "turn_left") {
+                    is_turning = true;
                     self->car_is_moving = true;
                     self->SendUartMessage("A|9|$");
                 } else if (cmd == "turn_right") {
+                    is_turning = true;
                     self->car_is_moving = true;
                     self->SendUartMessage("A|10|$");
                 } else {
