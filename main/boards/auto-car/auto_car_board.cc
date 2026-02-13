@@ -322,7 +322,7 @@ private:
                 generated_cmd.append("|");
                 c = rand() % 256;
                 generated_cmd.append(std::to_string(c));
-                generated_cmd.append("|;");
+                generated_cmd.append("|$;");
                 cnt--;
             }
             generated_cmd.append("stop");
@@ -660,12 +660,12 @@ public:
                     car_is_moving = false;
                     SendUartMessage("A|8|$A|11|$");
                     // 上报 MCP 通知：距离过近导致已停止（没有 id 字段）
-                    {
-                        std::string mcp_msg;
-                        mcp_msg.reserve(128);
-                        mcp_msg.append("{\"jsonrpc\":\"2.0\",\"method\":\"notifications/moving_changed\",\"params\":{\"newState\":false,\"oldState\":true}}");
-                        Application::GetInstance().SendMcpMessage(mcp_msg);
-                    }
+                    //{
+                    //    std::string mcp_msg;
+                    //    mcp_msg.reserve(128);
+                    //    mcp_msg.append("{\"jsonrpc\":\"2.0\",\"method\":\"notifications/moving_changed\",\"params\":{\"newState\":false,\"oldState\":true}}");
+                    //    Application::GetInstance().SendMcpMessage(mcp_msg);
+                    //}
                 }
             }
             return;
