@@ -196,7 +196,7 @@ private:
     void InitializeTools() {
         static LampController lamp(LAMP_GPIO);
         auto &mcp_server = McpServer::GetInstance();
-        mcp_server.AddTool("self.car.get_light_mode", "获取车灯颜色", PropertyList(), [this](const PropertyList &properties) -> ReturnValue {
+        mcp_server.AddTool("self.car.get_light_color", "获取车灯颜色", PropertyList(), [this](const PropertyList &properties) -> ReturnValue {
             int r = 0xff & (car_light >> 16);
             int g = 0xff & (car_light >> 8);
             int b = 0xff & car_light;
@@ -212,7 +212,7 @@ private:
             //B|R|G|B|$
         });
 
-        mcp_server.AddTool("self.car.set_light_mode", "设置车灯颜色", PropertyList({
+        mcp_server.AddTool("self.car.set_light_color", "设置车灯颜色", PropertyList({
             Property("r", kPropertyTypeInteger, 0, 255),
             Property("g", kPropertyTypeInteger, 0, 255),
             Property("b", kPropertyTypeInteger, 0, 255)
@@ -312,6 +312,17 @@ private:
                 char interval = '1' + (rand() % 3);
                 generated_cmd.append(1, interval);
                 generated_cmd.append(";");
+                // 可选：每个动作后都改变车灯的颜色。
+                int c = rand() % 256;
+                generated_cmd.append("B|");
+                generated_cmd.append(std::to_string(c));
+                generated_cmd.append("|");
+                c = rand() % 256;
+                generated_cmd.append(std::to_string(c));
+                generated_cmd.append("|");
+                c = rand() % 256;
+                generated_cmd.append(std::to_string(c));
+                generated_cmd.append("|;");
                 cnt--;
             }
             generated_cmd.append("stop");
@@ -560,6 +571,8 @@ public:
                 } else {
                     // fallback: treat as raw UART string
                     self->SendUartMessage(cmd.c_str());
+                    // 不是运动类的，不等待，直接执行下一个运动。
+                    continue;
                 }
             }
 
