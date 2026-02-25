@@ -34,7 +34,7 @@ private:
     esp_lcd_panel_handle_t panel_ = nullptr;
     int car_light = 0;//R|G|B
     int car_speed = 26;//0-100
-    bool car_is_moving = false; // 小车是否在运动
+    int car_is_moving = 0; // 小车是否在运动，1为前，2为后，4为左，8为右，0x10为左转，0x20为右转
     volatile int last_distance_mm = -1; // millimeters
     volatile int last_distance_mv = -1; // millivolts
     Display* display_ = nullptr;
@@ -335,68 +335,68 @@ private:
 
 #if 0   // 单独的指令延时太大，合并到 run_sequence 中调用。
         mcp_server.AddTool("self.car.go_forward", "前进", PropertyList(), [this](const PropertyList &properties) -> ReturnValue {
-            car_is_moving = true;
+            car_is_moving = 1;
             SendUartMessage("A|2|$");
             return true;
         });
 
         mcp_server.AddTool("self.car.go_back", "后退", PropertyList(), [this](const PropertyList &properties) -> ReturnValue {
-            car_is_moving = true;
+            car_is_moving = 2;
             SendUartMessage("A|6|$");
             return true;
         });
 
         mcp_server.AddTool("self.car.go_left", "左移", PropertyList(), [this](const PropertyList &properties) -> ReturnValue {
-            car_is_moving = true;
+            car_is_moving = 4;
             SendUartMessage("A|0|$");
             return true;
         });
 
         mcp_server.AddTool("self.car.go_right", "右移", PropertyList(), [this](const PropertyList &properties) -> ReturnValue {
-            car_is_moving = true;
+            car_is_moving = 8;
             SendUartMessage("A|4|$");
             return true;
         });
 
         mcp_server.AddTool("self.car.go_forward_left", "左前", PropertyList(), [this](const PropertyList &properties) -> ReturnValue {
-            car_is_moving = true;
+            car_is_moving = 4|1;
             SendUartMessage("A|1|$");
             return true;
         });
 
         mcp_server.AddTool("self.car.go_forward_right", "右前", PropertyList(), [this](const PropertyList &properties) -> ReturnValue {
-            car_is_moving = true;
+            car_is_moving = 8|1;
             SendUartMessage("A|3|$");
             return true;
         });
 
         mcp_server.AddTool("self.car.go_back_left", "左后", PropertyList(), [this](const PropertyList &properties) -> ReturnValue {
-            car_is_moving = true;
+            car_is_moving = 4|2;
             SendUartMessage("A|7|$");
             return true;
         });
 
         mcp_server.AddTool("self.car.go_back_right", "右后", PropertyList(), [this](const PropertyList &properties) -> ReturnValue {
-            car_is_moving = true;
+            car_is_moving = 8|2;
             SendUartMessage("A|5|$");
             return true;
         });
 
         mcp_server.AddTool("self.car.turn_left", "左转", PropertyList(), [this](const PropertyList &properties) -> ReturnValue {
-            car_is_moving = true;
+            car_is_moving = 0x10;
             SendUartMessage("A|9|$");
             return true;
         });
 
         mcp_server.AddTool("self.car.turn_right", "右转", PropertyList(), [this](const PropertyList &properties) -> ReturnValue {
-            car_is_moving = true;
+            car_is_moving = 0x20;
             SendUartMessage("A|10|$");
             return true;
         });
 
         // “停止转向”和“停止”功能合并，不区分转向和移动状态，任何停止命令都会发送完全停止指令给小车。
         // mcp_server.AddTool("self.car.stop_turn", "停止转向", PropertyList(), [this](const PropertyList &properties) -> ReturnValue {
-        //     car_is_moving = false;
+        //     car_is_moving = 0;
         //     SendUartMessage("A|8|$A|11|$");
         //     return true;
         // });
@@ -434,15 +434,27 @@ private:
             return true;
         });
 
-        // 返回最近一次轮询到的距离/电压（轮询任务每 300ms 发送请求并更新缓存）
-        mcp_server.AddTool("self.car.get_distance", "获取与前方物体的距离（毫米，毫伏）", PropertyList(), [this](const PropertyList &properties) -> ReturnValue {
+        // 返回最近一次轮询到的距离（轮询任务每 300ms 发送请求并更新缓存）
+        mcp_server.AddTool("self.car.get_distance", "获取小车与前方物体的距离（毫米）", PropertyList(), [this](const PropertyList &properties) -> ReturnValue {
             char buffer[64];
-            if (last_distance_mm == -1 || last_distance_mv == -1) {
+            if (last_distance_mm <= 0 || last_distance_mm > 65534) {
                 // 未轮询到数据，返回错误。
                 snprintf(buffer, sizeof(buffer), "{\"error\":\"Car not connected\"}");
             } else {
-                // 返回当前缓存值（整数，距离单位 mm，电压单位 mV）
-                snprintf(buffer, sizeof(buffer), "{\"distance_mm\":%d,\"voltage_mv\":%d}", last_distance_mm, last_distance_mv);
+                // 返回当前缓存值（整数，距离单位 mm）
+                snprintf(buffer, sizeof(buffer), "{\"distance_mm\":%d}", last_distance_mm);
+            }
+            return std::string(buffer);
+        });
+        // 返回最近一次轮询到的电压（轮询任务每 300ms 发送请求并更新缓存）
+        mcp_server.AddTool("self.car.get_voltage", "获取小车的电池电压（毫伏）", PropertyList(), [this](const PropertyList &properties) -> ReturnValue {
+            char buffer[64];
+            if (last_distance_mv <= 0) {
+                // 未轮询到数据，返回错误。
+                snprintf(buffer, sizeof(buffer), "{\"error\":\"Car not connected\"}");
+            } else {
+                // 返回当前缓存值（整数，电压单位 mV）
+                snprintf(buffer, sizeof(buffer), "{\"voltage_mv\":%d}", last_distance_mv);
             }
             return std::string(buffer);
         });
@@ -501,7 +513,6 @@ public:
     static void RunSequenceTask(void *arg) {
         SequenceJob *job = static_cast<SequenceJob*>(arg);
         AutoCarBoard *self = job->board;
-        bool is_turning = false;
         for (const auto &raw_cmd : job->commands) {
             std::string cmd = raw_cmd;
 
@@ -528,45 +539,42 @@ public:
                 }
                 // If command matches a known MCP tool name without the "self.car." prefix,
                 // invoke the corresponding action (same as AddTool handlers).
-                if (is_turning) {
+                if (self->car_is_moving & 0x30) {
                     // 上次的动作是转弯，得先停一下再做下一个动作。
-                    is_turning = false;
                     self->SendUartMessage("A|8|$A|11|$");
                 }
                 if (cmd == "stop") {
-                    self->car_is_moving = false;
+                    self->car_is_moving = 0;
                     self->SendUartMessage("A|8|$A|11|$");
                 } else if (cmd == "go_forward") {
-                    self->car_is_moving = true;
+                    self->car_is_moving = 1;
                     self->SendUartMessage("A|2|$");
                 } else if (cmd == "go_back") {
-                    self->car_is_moving = true;
+                    self->car_is_moving = 2;
                     self->SendUartMessage("A|6|$");
                 } else if (cmd == "go_left") {
-                    self->car_is_moving = true;
+                    self->car_is_moving = 4;
                     self->SendUartMessage("A|0|$");
                 } else if (cmd == "go_right") {
-                    self->car_is_moving = true;
+                    self->car_is_moving = 8;
                     self->SendUartMessage("A|4|$");
                 } else if (cmd == "go_forward_left") {
-                    self->car_is_moving = true;
+                    self->car_is_moving = 1|4;
                     self->SendUartMessage("A|1|$");
                 } else if (cmd == "go_forward_right") {
-                    self->car_is_moving = true;
+                    self->car_is_moving = 1|8;
                     self->SendUartMessage("A|3|$");
                 } else if (cmd == "go_back_left") {
-                    self->car_is_moving = true;
+                    self->car_is_moving = 2|4;
                     self->SendUartMessage("A|7|$");
                 } else if (cmd == "go_back_right") {
-                    self->car_is_moving = true;
+                    self->car_is_moving = 2|8;
                     self->SendUartMessage("A|5|$");
                 } else if (cmd == "turn_left") {
-                    is_turning = true;
-                    self->car_is_moving = true;
+                    self->car_is_moving = 0x10;
                     self->SendUartMessage("A|9|$");
                 } else if (cmd == "turn_right") {
-                    is_turning = true;
-                    self->car_is_moving = true;
+                    self->car_is_moving = 0x20;
                     self->SendUartMessage("A|10|$");
                 } else {
                     // fallback: treat as raw UART string
@@ -578,6 +586,10 @@ public:
 
             // delay after command (per-command interval if specified, otherwise default)
             if (local_interval_s > 0) vTaskDelay(pdMS_TO_TICKS(local_interval_s * 1000));
+            //check if the car is stopped by radar detection.
+            if (0 == (1 & self->car_is_moving) && (cmd == "go_forward" || cmd == "go_forward_left" || cmd == "go_forward_right")) {
+                break;
+            }
         }
         delete job;
         vTaskDelete(NULL);
@@ -607,9 +619,11 @@ public:
                 pending.append(reinterpret_cast<char*>(buf), len);
                 size_t pos;
                 while ((pos = pending.find('$')) != std::string::npos) {
-                    std::string pkt = pending.substr(0, pos); // 不含终止符
+                    if (pos > 0) {
+                        std::string pkt = pending.substr(0, pos); // 不含终止符
+                        HandleUartMessage(pkt);
+                    }
                     pending.erase(0, pos + 1);
-                    HandleUartMessage(pkt);
                 }
                 // 可能没有等待就收到消息了，需要在此等待一段时间，避免发消息太快。
                 vTaskDelay(pdMS_TO_TICKS(200));
@@ -654,10 +668,10 @@ public:
                 last_distance_mv = vol_mv;
                 ESP_LOGI(TAG, "Distance response: %d mm, %d mV", len_mm, vol_mv);
 
-                // 距离小于40mm且小车在运动时，自动停止
-                if (len_mm < 40 && car_is_moving) {
-                    ESP_LOGI(TAG, "Distance %d mm < 40mm, stopping car", len_mm);
-                    car_is_moving = false;
+                // 距离小于400且小车在运动时，自动停止
+                if (len_mm < 400 && (1 & car_is_moving) == 1) {
+                    ESP_LOGI(TAG, "Distance %d mm < 400, stopping car", len_mm);
+                    car_is_moving = 0;
                     SendUartMessage("A|8|$A|11|$");
                     // 上报 MCP 通知：距离过近导致已停止（没有 id 字段）
                     //{
