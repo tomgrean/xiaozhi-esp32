@@ -435,27 +435,21 @@ private:
         });
 
         // 返回最近一次轮询到的距离（轮询任务每 300ms 发送请求并更新缓存）
-        mcp_server.AddTool("self.car.get_distance", "获取小车与前方物体的距离（毫米）", PropertyList(), [this](const PropertyList &properties) -> ReturnValue {
+        mcp_server.AddTool("self.car.get_distance", "获取小车与前方物体的距离（毫米）。\n"
+            "返回值为JSON格式：{\"distance_mm\":距离值}\n"
+            "距离值单位为毫米。在区间为[0, 65534]表示有效值，否则为无效值", PropertyList(), [this](const PropertyList &properties) -> ReturnValue {
             char buffer[64];
-            if (last_distance_mm <= 0 || last_distance_mm > 65534) {
-                // 未轮询到数据，返回错误。
-                snprintf(buffer, sizeof(buffer), "{\"error\":\"Car not connected\"}");
-            } else {
-                // 返回当前缓存值（整数，距离单位 mm）
-                snprintf(buffer, sizeof(buffer), "{\"distance_mm\":%d}", last_distance_mm);
-            }
+            // 返回当前缓存值（整数，距离单位 mm）
+            snprintf(buffer, sizeof(buffer), "{\"distance_mm\":%d}", last_distance_mm);
             return std::string(buffer);
         });
         // 返回最近一次轮询到的电压（轮询任务每 300ms 发送请求并更新缓存）
-        mcp_server.AddTool("self.car.get_voltage", "获取小车的电池电压（毫伏）", PropertyList(), [this](const PropertyList &properties) -> ReturnValue {
+        mcp_server.AddTool("self.car.get_voltage", "获取小车的电池电压（毫伏）。\n"
+            "返回值为JSON格式：{\"voltage_mv\":电压值}\n"
+            "电压值单位为毫伏。在区间为[1, 9000]表示有效值，否则为无效值", PropertyList(), [this](const PropertyList &properties) -> ReturnValue {
             char buffer[64];
-            if (last_distance_mv <= 0) {
-                // 未轮询到数据，返回错误。
-                snprintf(buffer, sizeof(buffer), "{\"error\":\"Car not connected\"}");
-            } else {
-                // 返回当前缓存值（整数，电压单位 mV）
-                snprintf(buffer, sizeof(buffer), "{\"voltage_mv\":%d}", last_distance_mv);
-            }
+            // 返回当前缓存值（整数，电压单位 mV）
+            snprintf(buffer, sizeof(buffer), "{\"voltage_mv\":%d}", last_distance_mv);
             return std::string(buffer);
         });
     }
