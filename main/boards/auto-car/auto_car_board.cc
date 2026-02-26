@@ -196,7 +196,7 @@ private:
     void InitializeTools() {
         static LampController lamp(LAMP_GPIO);
         auto &mcp_server = McpServer::GetInstance();
-        mcp_server.AddTool("self.car.get_light_color", "获取车灯颜色", PropertyList(), [this](const PropertyList &properties) -> ReturnValue {
+        mcp_server.AddTool("self.car.get_light_color", "获取车灯颜色。返回JSON字符串{r:0-255,g:0-255,b:0-255}", PropertyList(), [this](const PropertyList &properties) -> ReturnValue {
             int r = 0xff & (car_light >> 16);
             int g = 0xff & (car_light >> 8);
             int b = 0xff & car_light;
@@ -212,7 +212,7 @@ private:
             //B|R|G|B|$
         });
 
-        mcp_server.AddTool("self.car.set_light_color", "设置车灯颜色", PropertyList({
+        mcp_server.AddTool("self.car.set_light_color", "设置车灯颜色。成功则返回true，失败则返回false", PropertyList({
             Property("r", kPropertyTypeInteger, 0, 255),
             Property("g", kPropertyTypeInteger, 0, 255),
             Property("b", kPropertyTypeInteger, 0, 255)
@@ -280,15 +280,16 @@ private:
         // 批量执行多条指令：commands 是用 ';' / '\n' 分隔的命令列表。
         // 每条指令也可以带后缀 `#<s>` 指定该条指令后等待秒数（例如 `go_forward#2`）。
         // 默认每条指令后等待固定 1 秒（若未在命令中指定）。
-        mcp_server.AddTool("self.car.run_sequence", R"=(一次执行多条指令，命令拼接成以';'分隔的字符串格式，指令有：
-"go_forward;go_back;go_left;go_right;go_forward_left;go_forward_right;go_back_left;go_back_right;turn_left;turn_right;stop"
-每个指令可以带后缀"#<s>"指定该条指令后等待秒数，例如：前进4秒，左移2秒的指令序列可以写成：
-"go_forward#4;go_left#2"
+        mcp_server.AddTool("self.car.run_sequence", R"=(一次执行多条指令，指令拼接成以';'分隔的字符串格式，指令有：
+ "go_forward;go_back;go_left;go_right;go_forward_left;go_forward_right;go_back_left;go_back_right;turn_left;turn_right;stop"
+ 每个指令可以带后缀"#<s>"指定该条指令后等待秒数，例如：前进4秒，左移2秒的指令序列可以写成：
+ "go_forward#4;go_left#2"
+ 成功则返回true，失败则返回false
 )=", PropertyList({
             Property("commands", kPropertyTypeString, "stop")
         }), do_sequence_func);
 
-        mcp_server.AddTool("self.car.dance", "跳舞，可以通过大于2的参数“number”指定跳多少步的舞，默认跳6步", PropertyList({
+        mcp_server.AddTool("self.car.dance", "跳舞，可以通过大于2的参数\"number\"指定跳多少步的舞，默认跳6步。\n成功则返回true，失败则返回false", PropertyList({
             Property("number", kPropertyTypeInteger, 6, 2, 50),
         }), [this, do_sequence_func](const PropertyList &properties) -> ReturnValue {
             const char *dance_commands[] = {"go_forward",
@@ -402,7 +403,7 @@ private:
         // });
 #endif
 
-        mcp_server.AddTool("self.car.set_speed", "设置移动速度", PropertyList({
+        mcp_server.AddTool("self.car.set_speed", "设置移动速度。\n速度值在[0,100]区间。\n成功则返回true，失败则返回false", PropertyList({
             Property("speed", kPropertyTypeInteger, 0, 100)
         }), [this](const PropertyList &properties) -> ReturnValue {
             int speed = properties["speed"].value<int>();
@@ -418,18 +419,18 @@ private:
             return true;
         });
 
-        mcp_server.AddTool("self.car.get_speed", "获取小车当前移动速度", PropertyList(), [this](const PropertyList &properties) -> ReturnValue {
+        mcp_server.AddTool("self.car.get_speed", "获取小车当前移动速度，返回值为JSON格式：{\"speed\":速度值}", PropertyList(), [this](const PropertyList &properties) -> ReturnValue {
             char buffer[16];
             snprintf(buffer, sizeof(buffer), "{\"speed\":%d}", car_speed);
             return std::string(buffer);
         });
 
-        mcp_server.AddTool("self.car.free_run", "自由避障运动", PropertyList(), [this](const PropertyList &properties) -> ReturnValue {
+        mcp_server.AddTool("self.car.free_run", "开始自由避障运动。\n成功则返回true，失败则返回false", PropertyList(), [this](const PropertyList &properties) -> ReturnValue {
             SendUartMessage("F|1|$");
             return true;
         });
 
-        mcp_server.AddTool("self.car.stop_free_run", "停止自由避障运动", PropertyList(), [this](const PropertyList &properties) -> ReturnValue {
+        mcp_server.AddTool("self.car.stop_free_run", "停止自由避障运动。\n成功则返回true，失败则返回false", PropertyList(), [this](const PropertyList &properties) -> ReturnValue {
             SendUartMessage("F|0|$");
             return true;
         });
